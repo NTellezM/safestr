@@ -18,7 +18,7 @@ jobs:
       matrix:
         cc: [gcc, clang]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Version del compilador
         run: ${{ matrix.cc }} --version
@@ -52,7 +52,7 @@ jobs:
     name: linux / propuesta upstream
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: El parche aplica limpio
         run: patch -p1 --dry-run --directory=. < propuesta/asignador.patch
@@ -76,7 +76,7 @@ jobs:
     name: macos / clang
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Version del compilador
         run: cc --version
@@ -115,7 +115,7 @@ jobs:
     name: windows / msvc
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ilammy/msvc-dev-cmd@v1
 
       - name: Compilar y correr los tests
