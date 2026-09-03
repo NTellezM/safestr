@@ -123,9 +123,12 @@ proyecto de quien use la libreria, no en este.
 El CI incluye un paso `uso_parcial` que compila exactamente ese caso con
 `-Werror` (y `/W4 /WX` en MSVC) para que la regresion no vuelva.
 
-Lo unico sin verificar es MSVC: la aritmetica con `uintptr_t`, el bit de
-marca en la cabecera y `__declspec(thread)` nunca se compilaron fuera de
-gcc. El test de hilos usa pthreads y no corre en Windows.
+MSVC esta cubierto por el CI: tests, uso parcial con `/W4 /WX`, la version
+C++ y los ejemplos, compilados con `cl`. Eso ejercita la aritmetica con
+`uintptr_t`, el bit de marca en la cabecera y la rama `__declspec(thread)`
+del asignador por hilo.
+
+Lo unico sin cobertura en Windows es el test de hilos, que usa pthreads.
 
 ## Alternativa considerada y descartada
 

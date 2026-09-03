@@ -241,11 +241,15 @@ tiene que sobrevivir al bloque donde nació, materialízalo con
 
 ## Integrar en el CI
 
-`ci/ci-extras.yml` no es un workflow completo: son pasos para pegar dentro
-de los jobs que el `ci.yml` de safestr ya tiene, para compartir checkout y
-matriz de compiladores. Cubre Linux, macOS y MSVC.
+El workflow vive en `.github/workflows/ci.yml` y corre en cada push: Linux
+con gcc y clang, macOS, Windows con MSVC, y un job aparte que verifica que
+el parche de la propuesta siga aplicando limpio.
 
-Dos notas:
+`ci/ci-extras.yml` es otra cosa: pasos sueltos para pegar dentro del
+`ci.yml` del repositorio original de safestr, si algún día estos módulos se
+integran ahí. No se usa en este repositorio.
+
+Tres notas:
 
 - El paso `uso_parcial` con `-Werror` (y `/W4 /WX` en MSVC) es el que
   atrapa cualquier función `static` sin usar que se cuele en los headers.
@@ -259,9 +263,14 @@ Dos notas:
   memory mapping", el paso necesita `setarch $(uname -m) -R` delante del
   binario, igual que el Makefile.
 
-**Nada de esto está verificado en MSVC.** La aritmética con `uintptr_t`, el
-bit de marca en la cabecera y `__declspec(thread)` solo se compilaron con
-gcc. Si algo se rompe, se rompe ahí.
+**MSVC está verificado.** El CI compila y corre los tests, el uso parcial
+con `/W4 /WX`, la versión C++ y los dos ejemplos con `cl`. Lo que eso cubre
+y ningún otro entorno prueba: la aritmética con `uintptr_t`, el bit de marca
+en la cabecera de la arena, y la rama `__declspec(thread)` del asignador por
+hilo de safestr.
+
+Lo único que sigue sin cobertura en Windows es el test de hilos, porque usa
+pthreads.
 
 ---
 
