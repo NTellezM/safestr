@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ------------------------------------------------------------------
+  # Linux: la matriz completa. Es donde corren los sanitizers.
+  # ------------------------------------------------------------------
+  linux:
+    name: linux / ${{ matrix.cc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version del compilador
+        run: ${{ matrix.cc }} --version
+
+      - name: Tests con AddressSanitizer y UndefinedBehaviorSanitizer
+        run: make check CC=${{ matrix.cc }}
+
+      # Una unidad de traduccion que incluye los headers pero usa poco de la
+      # API. Con -Werror atrapa cualquier funcion `static` sin usar que se
+      # cuele, que en MSVC /W4 /WX seria un error en el proyecto del usuario.
+      - name: Uso parcial de la API, sin warnings
+        run: make clean && make check-parcial CC=${{ matrix.cc }}
+
+      - name: Matriz de estandares C99, C11, C17 y C++17
+        run: make clean && make check-std CC=${{ matrix.cc }}
+
+      # setarch -R evita el choque de ThreadSanitizer con el ASLR de alta
+      # entropia (vm.mmap_rnd_bits = 32) de los runners recientes. El
+      # Makefile ya lo aplica solo.
+      - name: Asignador por hilo con ThreadSanitizer
+        run: make clean && make check-threads CC=${{ matrix.cc }}
+
+      - name: Ejemplos
+        run: make clean && make ejemplo CC=${{ matrix.cc }}
+
+  # ------------------------------------------------------------------
+  # El parche de la propuesta: que siga aplicando limpio sobre los
+  # fuentes, y que el arbol parcheado siga pasando todo.
+  # ------------------------------------------------------------------
+  propuesta:
+    name: linux / propuesta upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: El parche aplica limpio
+        run: patch -p1 --dry-run --directory=. < propuesta/asignador.patch
+
+      - name: Alineacion, duelo de arenas y hilos sobre el arbol parcheado
+        run: make propuesta
+
+      # Si alguien toca safestr.h o safestr.c sin regenerar el parche, esto
+      # falla y avisa antes de que el PR upstream quede desactualizado.
+      - name: La suite completa sobre el arbol parcheado
+        run: |
+          cd build/parcheado
+          cc -std=c17 -Wall -Wextra -Wpedantic -Werror -O2 -I. \
+            ../../test/test_extras.c safestr.c -o t
+          ./t
+
+  # ------------------------------------------------------------------
+  # macOS: clang de Apple, que no es el mismo clang de arriba.
+  # ------------------------------------------------------------------
+  macos:
+    name: macos / clang
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version del compilador
+        run: cc --version
+
+      # macOS no soporta deteccion de fugas en ASan, y no permite ASan y
+      # TSan en la misma corrida: por eso check-threads compila dos binarios.
+      - name: Tests con sanitizers
+        run: ASAN_OPTIONS=detect_leaks=0 make check
+
+      - name: Uso parcial de la API, sin warnings
+        run: make clean && make check-parcial
+
+      - name: Matriz de estandares
+        run: make clean && make check-std
+
+      - name: Asignador por hilo con ThreadSanitizer
+        run: make clean && ASAN_OPTIONS=detect_leaks=0 make check-threads
+
+      - name: Ejemplos
+        run: make clean && make ejemplo
+
+  # ------------------------------------------------------------------
+  # Windows con MSVC: sin make, invocando cl directamente.
+  #
+  # Es el unico entorno donde nada de esto se ha compilado nunca. Lo que
+  # se prueba aqui y en ningun otro lado: la aritmetica con uintptr_t, el
+  # bit de marca en la cabecera de la arena, y la rama
+  # __declspec(thread) del asignador por hilo de safestr.
+  #
+  # El test de hilos NO va aqui: usa pthreads.
+  #
+  # /WX convierte los warnings en errores, que es lo que verifica que no
+  # reaparezca ninguna funcion `static` sin usar en los headers.
+  # ------------------------------------------------------------------
+  windows:
+    name: windows / msvc
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Compilar y correr los tests
+        run: |
+          cl /nologo /W4 /WX /std:c11 /I. safestr.c test\test_extras.c /Fe:tests.exe
+          tests.exe
+        shell: cmd
+
+      - name: Uso parcial de la API, sin warnings
+        run: |
+          cl /nologo /W4 /WX /std:c11 /I. safestr.c test\uso_parcial.c /Fe:parcial.exe
+          parcial.exe
+        shell: cmd
+
+      - name: Compilar como C++
+        run: |
+          cl /nologo /W4 /std:c++17 /TP /I. safestr.c test\test_extras.c /Fe:tests_cpp.exe
+          tests_cpp.exe
+        shell: cmd
+
+      - name: Ejemplos
+        run: |
+          cl /nologo /W4 /std:c11 /I. safestr.c ejemplo\bodega.c /Fe:bodega.exe
+          cl /nologo /W4 /std:c11 /I. safestr.c ejemplo\plantilla.c /Fe:plantilla.exe
+          bodega.exe generar 1000 > mov.csv
+          bodega.exe resumir mov.csv
+          plantilla.exe --demo
+        shell: cmd

@@ -110,9 +110,14 @@ bench: $(BUILD)
 ejemplo: $(BUILD)
 	$(CC) $(STD) $(CFLAGS) $(WARN) -Werror $(INC) ejemplo/bodega.c $(FUENTE) \
 	    -o $(BUILD)/bodega
+	$(CC) $(STD) $(CFLAGS) $(WARN) -Werror $(INC) ejemplo/plantilla.c $(FUENTE) \
+	    -o $(BUILD)/plantilla
 	@echo
-	@echo "=== 50.000 movimientos de prueba, resumidos por pasillo ==="
+	@echo "=== bodega: 50.000 movimientos resumidos por pasillo ==="
 	@./$(BUILD)/bodega generar 50000 | ./$(BUILD)/bodega resumir
+	@echo
+	@echo "=== plantilla: variables de config sustituidas ==="
+	@cd $(BUILD) && ./plantilla --demo
 
 # ------------------------------------------------------------------
 # Propuesta upstream: necesita el parche aplicado

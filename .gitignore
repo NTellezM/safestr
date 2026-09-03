@@ -3,9 +3,14 @@ build/
 
 # binarios sueltos, si se compilo a mano dentro de ejemplo/
 ejemplo/bodega
+ejemplo/plantilla
 ejemplo/*.csv
+demo_config.ini
+demo_plantilla.txt
 
 # salidas de fuzzing, por si se corre el del repo original
 crash-*
 oom-*
 timeout-*
+old/
+old2/
