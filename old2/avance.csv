@@ -1,0 +1,13 @@
+# avance semanal - semana 34
+# id,tarea,plan,real,costo
+id,tarea,plan,real,costo
+A100,Movimiento de tierras,100,100,48500000
+A110,"Excavacion, sector norte",85,88,12400000
+A120,Hormigon fundaciones,70,52,31750000
+A130,   Montaje estructural   ,55,55,86300000
+A140,"Canerias de proceso ""HDPE"" 400mm",40,26,19800000
+A150,Instalacion electrica,30,31,7250000
+
+A160,Pruebas y puesta en marcha,10,0,2100000
+esta linea esta rota y se salta
+A170,Cierre documental,5,5,450000

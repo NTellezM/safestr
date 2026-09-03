@@ -1,0 +1,87 @@
+--- a/safestr.h	2026-09-02 23:15:00.318826000 +0000
++++ b/safestr.h	2026-09-02 23:34:44.261564822 +0000
+@@ -299,6 +299,14 @@
+ void ss_set_allocator(void* (*realloc_fn)(void*, size_t), void (*free_fn)(void*));
+ void ss_set_allocator_ex(SafeReallocFn realloc_fn, SafeFreeFn free_fn, void* ctx);
+ 
++/* Variante que ademas recibe el tamaño ANTERIOR del bloque. safestr ya lo
++   conoce (es s->capacity), asi que pasarlo es gratis para la libreria y le
++   ahorra al asignador tener que guardarlo el mismo en una cabecera por
++   bloque. Para una arena eso son 8 bytes menos por reserva. tam_viejo es 0
++   cuando p es NULL. */
++typedef void* (*SafeReallocFn2)(void* ctx, void* p, size_t tam_viejo, size_t tam_nuevo);
++void ss_set_allocator_ex2(SafeReallocFn2 realloc_fn, SafeFreeFn free_fn, void* ctx);
++
+ /* Libera memoria devuelta por ss_release usando el asignador configurado. */
+ void ss_mem_free(void* p);
+ 
+--- a/safestr.c	2026-09-02 23:15:00.248803000 +0000
++++ b/safestr.c	2026-09-02 23:34:44.261823964 +0000
+@@ -1,4 +1,4 @@
+-#include "safestr.h"
++#include "safestr.h"
+ 
+ #include <ctype.h>
+ #include <limits.h>
+@@ -66,11 +66,27 @@
+ static SS_THREAD_LOCAL SafeFreeFn    ss_free_actual    = ss_free_por_defecto;
+ static SS_THREAD_LOCAL void*         ss_ctx_actual     = NULL;
+ 
+-static void* ss_realloc_fn(void* p, size_t n)
++static SS_THREAD_LOCAL SafeReallocFn2 ss_realloc2_actual = NULL;
++
++static void* ss_realloc_fn2(void* p, size_t viejo, size_t n)
+ {
++    if (ss_realloc2_actual != NULL)
++        return ss_realloc2_actual(ss_ctx_actual, p, viejo, n);
+     return ss_realloc_actual(ss_ctx_actual, p, n);
+ }
+ 
++static void* ss_realloc_fn(void* p, size_t n)
++{
++    return ss_realloc_fn2(p, 0, n);
++}
++
++void ss_set_allocator_ex2(SafeReallocFn2 realloc_fn, SafeFreeFn free_fn, void* ctx)
++{
++    ss_realloc2_actual = realloc_fn;
++    ss_free_actual = free_fn;
++    ss_ctx_actual = ctx;
++}
++
+ static void ss_free_fn(void* p)
+ {
+     ss_free_actual(ss_ctx_actual, p);
+@@ -84,12 +100,14 @@
+         ss_simple.free_fn = NULL;
+         ss_realloc_actual = ss_realloc_por_defecto;
+         ss_free_actual = ss_free_por_defecto;
++        ss_realloc2_actual = NULL;
+         ss_ctx_actual = NULL;
+         return;
+     }
+ 
+     ss_simple.realloc_fn = realloc_fn;
+     ss_simple.free_fn = free_fn;
++    ss_realloc2_actual = NULL;
+     ss_realloc_actual = ss_realloc_simple;
+     ss_free_actual = ss_free_simple;
+     ss_ctx_actual = NULL;
+@@ -197,7 +215,7 @@
+ 
+     size_t nueva_capacidad = ss_capacidad_objetivo(s->capacity, min_capacidad);
+ 
+-    char* nuevo_buffer = (char*) ss_realloc_fn(s->data, nueva_capacidad);
++    char* nuevo_buffer = (char*) ss_realloc_fn2(s->data, s->capacity, nueva_capacidad);
+     if (nuevo_buffer == NULL)
+     {
+         s->error = true;
+@@ -250,7 +268,7 @@
+     if (s->capacity == s->length + 1)
+         return true;
+ 
+-    char* ajustado = (char*) ss_realloc_fn(s->data, s->length + 1);
++    char* ajustado = (char*) ss_realloc_fn2(s->data, s->capacity, s->length + 1);
+     if (ajustado == NULL)
+         return false;   /* el buffer original sigue siendo valido */
+ 

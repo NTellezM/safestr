@@ -1,0 +1,88 @@
+# ------------------------------------------------------------------
+# Pasos para safestr_arena.h y safestr_split.h
+#
+# Van DENTRO de los jobs que ya existen en ci.yml, no como job aparte:
+# comparten checkout y compilador con el resto de la matriz.
+#
+# Los dos modulos son header-only y no tocan safestr.c, asi que no hay
+# nada nuevo que enlazar ni que agregar al amalgamate.sh.
+# ------------------------------------------------------------------
+
+# --- en el job `linux`, despues de "Header unico" -----------------
+      - name: Modulos extra con sanitizers
+        run: |
+          ${{ matrix.cc }} -std=c17 -O1 -g -Wall -Wextra -Wpedantic \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -I. test/test_extras.c safestr.c -o test_extras_san
+          ./test_extras_san
+
+      - name: Modulos extra en la matriz de estandares
+        run: |
+          for std in c99 c11 c17; do
+            echo "--- $std ---"
+            ${{ matrix.cc }} -std=$std -Wall -Wextra -Wpedantic -Werror -O2 \
+              -I. test/test_extras.c safestr.c -o t_$std
+            ./t_$std
+          done
+        shell: bash
+
+      # Una unidad de traduccion que incluye los headers pero usa solo una
+      # parte de la API. Es el caso del usuario real, y el que destapa las
+      # funciones estaticas no usadas (C4505 en MSVC /W4). Por eso todo en
+      # los headers es `static inline` y no `static`.
+      - name: Uso parcial de la API, sin warnings
+        run: |
+          ${{ matrix.cc }} -std=c17 -Wall -Wextra -Wpedantic -Werror -O2 \
+            -I. test/uso_parcial.c safestr.c -o uso_parcial
+          ./uso_parcial
+
+      # setarch -R evita el choque de ThreadSanitizer con el ASLR de alta
+      # entropia (vm.mmap_rnd_bits = 32) de los runners recientes.
+      - name: Arena por hilo con ThreadSanitizer
+        run: |
+          ${{ matrix.cc }} -std=c17 -O1 -g -fsanitize=thread \
+            -I. test/test_arena_hilos.c safestr.c -o hilos_tsan -lpthread
+          setarch $(uname -m) -R ./hilos_tsan
+
+      - name: Modulos extra compilados como C++
+        run: |
+          g++ -std=c++17 -Wall -Wextra -O2 -x c++ \
+            -I. test/test_extras.c safestr.c -o t_cpp
+          ./t_cpp
+
+# --- en el job `macos`, despues de "Header unico" -----------------
+# Identico, salvo que macOS no detecta fugas: se desactiva.
+      - name: Modulos extra con sanitizers
+        run: |
+          cc -std=c17 -O1 -g -Wall -Wextra -Wpedantic \
+            -fsanitize=address,undefined \
+            -I. test/test_extras.c safestr.c -o test_extras_san
+          ASAN_OPTIONS=detect_leaks=0 ./test_extras_san
+
+# --- en el job `windows`, despues de "Header unico" ---------------
+# La rama que importa aqui: __declspec(thread) del asignador y la
+# aritmetica de punteros con uintptr_t bajo MSVC, que nunca se
+# compilan en Linux.
+#
+# El test de hilos NO va aqui: usa pthreads. Si hace falta cobertura de
+# hilos en Windows, hay que reescribirlo con CreateThread.
+#
+# /WX convierte los warnings en errores: es lo que verifica que no
+# reaparezca ninguna funcion `static` sin usar en los headers.
+      - name: Modulos extra con MSVC
+        run: |
+          cl /nologo /W4 /WX /std:c11 /I. safestr.c test\test_extras.c /Fe:extras.exe
+          extras.exe
+        shell: cmd
+
+      - name: Uso parcial de la API con MSVC, sin warnings
+        run: |
+          cl /nologo /W4 /WX /std:c11 /I. safestr.c test\uso_parcial.c /Fe:parcial.exe
+          parcial.exe
+        shell: cmd
+
+      - name: Modulos extra como C++ con MSVC
+        run: |
+          cl /nologo /W4 /std:c++17 /TP /I. safestr.c test\test_extras.c /Fe:extras_cpp.exe
+          extras_cpp.exe
+        shell: cmd

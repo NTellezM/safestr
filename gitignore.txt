@@ -1,0 +1,11 @@
+# artefactos de compilacion
+build/
+
+# binarios sueltos, si se compilo a mano dentro de ejemplo/
+ejemplo/bodega
+ejemplo/*.csv
+
+# salidas de fuzzing, por si se corre el del repo original
+crash-*
+oom-*
+timeout-*
