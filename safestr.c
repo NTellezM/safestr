@@ -415,12 +415,33 @@ bool ss_vappendf(SafeString* s, const char* fmt, va_list ap)
     if (!ss_suma_segura(s->length, extra) || !ss_suma_segura(s->length + extra, 1))
         return false;
 
-    if (!ss_grow(s, s->length + extra + 1))
-        return false;
+    /* Si ya hay sitio no hace falta crecer, y sin realloc no hay puntero que
+       se invalide: un argumento que apunte al propio buffer, como
+       ss_appendf(&s, "%s", ss_cstr(&s)), sigue siendo valido. */
+    if (s->length + extra + 1 <= s->capacity)
+    {
+        vsnprintf(s->data + s->length, extra + 1, fmt, ap);
+        s->length += extra;
+        return true;
+    }
 
-    vsnprintf(s->data + s->length, extra + 1, fmt, ap);
-    s->length += extra;
-    return true;
+    /* Hay que crecer, y ss_grow puede mover el buffer. Los punteros de `ap`
+       los evaluo quien llamo, ANTES de entrar aqui: si alguno apunta dentro
+       de s->data, formatear despues del realloc lo leeria ya liberado.
+       ss_append_len resuelve ese caso reubicando el puntero, pero con varargs
+       no se puede inspeccionar el argumento. La unica forma correcta es
+       formatear aparte y agregar despues. */
+    char* temporal = (char*) ss_realloc_fn(NULL, extra + 1);
+    if (temporal == NULL)
+    {
+        s->error = true;
+        return false;
+    }
+
+    vsnprintf(temporal, extra + 1, fmt, ap);
+    bool ok = ss_append_len(s, temporal, extra);
+    ss_free_fn(temporal);
+    return ok;
 }
 
 bool ss_appendf(SafeString* s, const char* fmt, ...)
@@ -1097,7 +1118,16 @@ long sv_to_long(SafeView v, bool* ok)
     if (ok != NULL)
         *ok = true;
 
-    return negativo ? -(long) acumulado : (long) acumulado;
+    if (!negativo)
+        return (long) acumulado;
+
+    /* El valor absoluto de LONG_MIN es LONG_MAX+1, que no cabe en long:
+       convertirlo y despues negarlo es desbordamiento con signo, o sea
+       comportamiento indefinido. Se devuelve la constante directamente. */
+    if (acumulado == (unsigned long) LONG_MAX + 1u)
+        return LONG_MIN;
+
+    return -(long) acumulado;
 }
 
 bool sv_next(SafeView* resto, SafeView sep, SafeView* campo)
@@ -1223,8 +1253,21 @@ bool ss_vsetf(SafeString* s, const char* fmt, va_list ap)
     if (s == NULL || fmt == NULL || s->error)
         return false;
 
-    ss_clear(s);
-    return ss_vappendf(s, fmt, ap);
+    /* No se puede limpiar antes de formatear: ss_setf(&s, "%s!", ss_cstr(&s))
+       dejaria el buffer en "" y el %s leeria la cadena vacia, devolviendo un
+       resultado silenciosamente incorrecto. Se formatea a un temporal y solo
+       entonces se reemplaza el contenido. */
+    SafeString temporal = ss_new();
+
+    if (!ss_vappendf(&temporal, fmt, ap))
+    {
+        ss_free(&temporal);
+        return false;
+    }
+
+    ss_free(s);
+    *s = temporal;
+    return true;
 }
 
 bool ss_setf(SafeString* s, const char* fmt, ...)

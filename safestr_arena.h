@@ -53,6 +53,7 @@
  * donde esta, sin copiar.
  */
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "safestr.h"
@@ -138,6 +139,10 @@ static inline int ss_arena_nuevo_trozo_(SsArena* ar, size_t minimo)
     size_t cap = ar->cap_trozo;
     if (cap < minimo) cap = minimo;
 
+    /* Tercer sitio donde la suma podria dar la vuelta. */
+    if (cap > SIZE_MAX - sizeof(SsArenaTrozo) - SS_ARENA_ALINEACION)
+        return 0;
+
     SsArenaTrozo* t = (SsArenaTrozo*) malloc(sizeof(SsArenaTrozo) + cap + SS_ARENA_ALINEACION);
     if (t == NULL) return 0;
 
@@ -211,6 +216,13 @@ static inline void* ss_arena_grande_(SsArena* ar, void* viejo_payload, size_t n)
     SsArenaGrande* ant = g ? g->ant : NULL;
     SsArenaGrande* sig = g ? g->sig : NULL;
 
+    /* La suma da la vuelta con n cerca de SIZE_MAX: realloc recibiria un
+       numero diminuto, devolveria un bloque de unos pocos bytes, y safestr
+       se quedaria con una `capacity` gigante sobre memoria que no existe.
+       La primera escritura ya se sale del heap. */
+    if (n > SIZE_MAX - sizeof(SsArenaGrande) - SS_ARENA_CABECERA)
+        return NULL;
+
     SsArenaGrande* nuevo = (SsArenaGrande*) realloc(g, sizeof(SsArenaGrande) + SS_ARENA_CABECERA + n);
     if (nuevo == NULL) return NULL;
 
@@ -244,6 +256,10 @@ static inline void* ss_arena_pedir_(SsArena* ar, size_t n)
 {
     if (n > SS_ARENA_UMBRAL_GRANDE(ar->cap_trozo))
         return ss_arena_grande_(ar, NULL, n);
+
+    /* Mismo cuidado con el redondeo hacia arriba y la cabecera. */
+    if (n > SIZE_MAX - SS_ARENA_CABECERA - (SS_ARENA_ALINEACION - 1))
+        return NULL;
 
     size_t total = SS_ARENA_CABECERA + ss_arena_redondear_(n);
 

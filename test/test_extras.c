@@ -7,6 +7,8 @@
  *     cc -std=c99 -Wall -Wextra -Wpedantic -I. test_extras.c safestr.c -o t && ./t
  */
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "safestr.h"
@@ -292,6 +294,119 @@ static void test_split_grande_en_arena(void)
 }
 
 /* ================================================================== */
+/* Regresiones: fallos encontrados auditando la libreria              */
+/* ================================================================== */
+
+/* ss_appendf(&s, "%s", ss_cstr(&s)): ss_grow movia el buffer con realloc y el
+   puntero que el llamador ya habia dejado en `ap` quedaba colgando. vsnprintf
+   lo leia despues: use-after-free confirmado con AddressSanitizer.
+   ss_append_len resuelve el mismo caso reubicando el puntero, pero con
+   varargs no se puede inspeccionar el argumento. */
+static void test_appendf_autoreferente(void)
+{
+    SafeString s = ss_from("hola");
+    int i;
+    for (i = 0; i < 3; i++)
+        ss_append(&s, "0123456789");
+
+    size_t antes = ss_len(&s);
+    ok("appendf auto: el caso exige crecer", antes + antes + 1 > s.capacity);
+
+    ss_appendf(&s, "%s", ss_cstr(&s));
+
+    ok("appendf auto: largo duplicado", ss_len(&s) == antes * 2);
+    ok("appendf auto: sin error", ss_ok(&s));
+
+    {   /* las dos mitades tienen que ser identicas */
+        SafeString a = ss_slice(&s, 0, antes);
+        SafeString b = ss_slice(&s, antes, ss_len(&s));
+        ok("appendf auto: contenido intacto", ss_equals(&a, &b));
+        ss_free(&a);
+        ss_free(&b);
+    }
+
+    /* El camino sin realloc no cambio: se formatea en el sitio. */
+    ss_reserve(&s, ss_len(&s) * 2 + 8);
+    {
+        size_t antes2 = ss_len(&s);
+        ok("appendf auto: aqui NO hay que crecer", antes2 + antes2 + 1 <= s.capacity);
+        ss_appendf(&s, "%s", ss_cstr(&s));
+        ok("appendf auto: igual con capacidad de sobra", ss_len(&s) == antes2 * 2);
+    }
+
+    ss_free(&s);
+}
+
+/* ss_setf limpiaba el buffer ANTES de formatear, asi que un %s apuntando al
+   propio string leia la cadena vacia. No habia UAF ni nada que lo delatara:
+   devolvia true, ss_ok() daba true, y el dato desaparecia en silencio. */
+static void test_setf_autoreferente(void)
+{
+    SafeString s = ss_from("abcdefghij");
+
+    ok("setf auto: devuelve true", ss_setf(&s, "[%s]", ss_cstr(&s)));
+    ok("setf auto: contenido completo", ss_equals_cstr(&s, "[abcdefghij]"));
+    ok("setf auto: sin error", ss_ok(&s));
+
+    ss_free(&s);
+}
+
+/* -(long) acumulado, con acumulado == LONG_MAX+1, es desbordamiento con signo:
+   comportamiento indefinido, marcado por UBSan al parsear LONG_MIN.
+   Se construyen los limites con snprintf para no depender del ancho de long
+   (en MSVC de 64 bits son 32 bits, no 64). */
+static void test_to_long_limites(void)
+{
+    char buf[64];
+    bool bien;
+    long r;
+
+    snprintf(buf, sizeof buf, "%ld", LONG_MAX);
+    r = sv_to_long(sv(buf), &bien);
+    ok("to_long: LONG_MAX exacto", bien && r == LONG_MAX);
+
+    snprintf(buf, sizeof buf, "%ld", LONG_MIN);
+    r = sv_to_long(sv(buf), &bien);
+    ok("to_long: LONG_MIN exacto", bien && r == LONG_MIN);
+
+    snprintf(buf, sizeof buf, "%lu", (unsigned long) LONG_MAX + 1u);
+    sv_to_long(sv(buf), &bien);
+    ok("to_long: LONG_MAX+1 rechazado", !bien);
+
+    snprintf(buf, sizeof buf, "-%lu", (unsigned long) LONG_MAX + 2u);
+    sv_to_long(sv(buf), &bien);
+    ok("to_long: LONG_MIN-1 rechazado", !bien);
+}
+
+/* sizeof(SsArenaGrande) + CABECERA + n daba la vuelta con n cerca de SIZE_MAX:
+   realloc recibia un numero diminuto, devolvia un bloque de 15 bytes, y
+   safestr se quedaba con capacity = SIZE_MAX-16 y error = false. La primera
+   escritura se salia del heap. */
+static void test_arena_desborde_tamano(void)
+{
+    SsArena a;
+    ss_arena_init(&a, 64 * 1024);
+    ss_arena_activar(&a);
+
+    {
+        SafeString s = ss_new();
+        ok("arena desborde: la reserva se rechaza", !ss_reserve(&s, SIZE_MAX - 16));
+        ok("arena desborde: queda marcado el error", !ss_ok(&s));
+        ok("arena desborde: sin capacidad fantasma", s.capacity == 0);
+        ss_free(&s);
+    }
+
+    {   /* la arena sigue sana despues del rechazo */
+        SafeString t = ss_from("sigue viva");
+        ok("arena desborde: la arena sigue usable", ss_equals_cstr(&t, "sigue viva"));
+        ss_free(&t);
+    }
+
+    ss_arena_desactivar();
+    ss_arena_free(&a);
+}
+
+/* ================================================================== */
 
 int main(void)
 {
@@ -307,6 +422,11 @@ int main(void)
     test_split_bordes();
     test_split_con_arena_activa();
     test_split_grande_en_arena();
+
+    test_appendf_autoreferente();
+    test_setf_autoreferente();
+    test_to_long_limites();
+    test_arena_desborde_tamano();
 
     printf("%d comprobaciones, %d fallas\n", total, fallos);
     return fallos != 0;

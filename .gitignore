@@ -14,3 +14,11 @@ oom-*
 timeout-*
 old/
 old2/
+
+# entorno virtual local
+.venv/
+
+# datos reales de contrato: no van al repo publico.
+# task.tsv se regenera desde el XER con ejemplo/xer_a_tsv.py
+task.tsv
+*.xlsx
