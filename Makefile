@@ -10,6 +10,14 @@
 #   make propuesta      aplica el parche en build/ y corre lo que depende de el
 #   make clean
 
+# Sin reglas implicitas. Por defecto, `make cronograma` sobre un
+# cronograma.c suelto dispara `cc cronograma.c -o cronograma`, sin
+# safestr.c y sin -I., y falla con cincuenta errores del enlazador que no
+# dicen nada. Desactivadas, make responde "No rule to make target", que es
+# la verdad y se entiende.
+MAKEFLAGS += --no-builtin-rules
+.SUFFIXES:
+
 CC      ?= cc
 CXX     ?= g++
 CFLAGS  ?= -O2 -g
@@ -112,6 +120,8 @@ ejemplo: $(BUILD)
 	    -o $(BUILD)/bodega
 	$(CC) $(STD) $(CFLAGS) $(WARN) -Werror $(INC) ejemplo/plantilla.c $(FUENTE) \
 	    -o $(BUILD)/plantilla
+	$(CC) $(STD) $(CFLAGS) $(POSIX) $(WARN) -Werror $(INC) ejemplo/cronograma.c $(FUENTE) \
+	    -o $(BUILD)/cronograma
 	@echo
 	@echo "=== bodega: 50.000 movimientos resumidos por pasillo ==="
 	@./$(BUILD)/bodega generar 50000 | ./$(BUILD)/bodega resumir
