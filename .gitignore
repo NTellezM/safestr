@@ -22,3 +22,4 @@ old2/
 # task.tsv se regenera desde el XER con ejemplo/xer_a_tsv.py
 task.tsv
 *.xlsx
+build/
